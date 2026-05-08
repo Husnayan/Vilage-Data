@@ -1,6 +1,7 @@
 const mqttConfig = {
     broker: 'wss://broker.emqx.io:8084/mqtt',
-    topics: ['adcd', 'efgh', 'ijkl', 'panasdek', 'meledakdek', 'menyaladek', 'panasmasputra', 'meledakduar', 'menyalaabangku']
+    // Subscribe ke masing-masing topik RT
+    topics: ['husnayan/rt1/data', 'husnayan/rt2/data'] 
 };
 
 let historyData = [];
@@ -9,6 +10,12 @@ let tempChart, gasChart;
 let timeLabels = [];
 let tempData = { rt1: [], rt2: [], rt3: [] };
 let gasData = { rt1: [], rt2: [], rt3: [] };
+
+let lastData = {
+    rt1: { t: null, g: null, l: null },
+    rt2: { t: null, g: null, l: null },
+    rt3: { t: null, g: null, l: null }
+};
 
 function addToHistory(rt, type, value) {
     const now = new Date();
@@ -32,26 +39,23 @@ function addToHistory(rt, type, value) {
 function downloadCSV() {
     if (historyData.length === 0) return alert("Belum ada data rekaman!");
     let csv = "\uFEFFTanggal,Waktu,Sumber,Tipe,Nilai\n";
-    historyData.forEach(d => {
-        csv += `${d.date},${d.time},RT ${d.rt},${d.type},"${d.value}"\n`;
-    });
+    historyData.forEach(d => { csv += `${d.date},${d.time},RT ${d.rt},${d.type},"${d.value}"\n`; });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
+    a.href = window.URL.createObjectURL(blob);
     a.download = `Log_MQTT_RT_Monitoring_${new Date().toISOString().slice(0,10)}.csv`;
     a.click();
 }
 
 function updateDisplay(id, val, isTemp) {
     const el = document.getElementById(id);
-    el.textContent = isTemp ? `${parseFloat(val).toFixed(2)}°C` : val;
+    el.textContent = isTemp ? `${parseFloat(val).toFixed(2)}°C` : parseFloat(val).toFixed(2);
 }
 
 function updateLED(id, status) {
     const ind = document.getElementById(`ledIndicator${id}`);
     const txt = document.getElementById(`ledStatus${id}`);
-    const isOn = status == "1" || status.toUpperCase() == "ON";
+    const isOn = status === "1" || status === 1 || status.toString().toUpperCase() === "ON";
     ind.className = isOn ? 'led-indicator led-on' : 'led-indicator led-off';
     txt.textContent = isOn ? 'ON' : 'OFF';
     txt.style.color = isOn ? '#2ecc71' : '#95a5a6';
@@ -62,30 +66,40 @@ function connectMQTT() {
 
     client.on('connect', () => {
         document.getElementById('statusDot').className = 'status-dot connected';
-        document.getElementById('connectionText').textContent = 'TERHUBUNG';
+        document.getElementById('connectionText').textContent = 'TERHUBUNG KE MAIN.CPP';
         mqttConfig.topics.forEach(t => client.subscribe(t));
     });
 
     client.on('message', (topic, payload) => {
-        const msg = payload.toString();
-        messageCount++;
-        document.getElementById('messageCount').textContent = messageCount;
-        document.getElementById('lastUpdateTime').textContent = new Date().toLocaleTimeString();
-
-        switch(topic) {
-            case 'adcd': updateDisplay('temp1', msg, true); addToHistory(1, "Suhu", msg + "°C"); break;
-            case 'efgh': updateDisplay('gas1', msg, false); addToHistory(1, "Gas", msg); break;
-            case 'ijkl': updateLED(1, msg); addToHistory(1, "LED", msg == "1" ? "ON" : "OFF"); break;
+        try {
+            const data = JSON.parse(payload.toString());
             
-            case 'panasdek': updateDisplay('temp2', msg, true); addToHistory(2, "Suhu", msg + "°C"); break;
-            case 'meledakdek': updateDisplay('gas2', msg, false); addToHistory(2, "Gas", msg); break;
-            case 'menyaladek': updateLED(2, msg); addToHistory(2, "LED", msg == "1" ? "ON" : "OFF"); break;
+            messageCount++;
+            document.getElementById('messageCount').textContent = messageCount;
+            document.getElementById('lastUpdateTime').textContent = new Date().toLocaleTimeString();
 
-            case 'panasmasputra': updateDisplay('temp3', msg, true); addToHistory(3, "Suhu", msg + "°C"); break;
-            case 'meledakduar': updateDisplay('gas3', msg, false); addToHistory(3, "Gas", msg); break;
-            case 'menyalaabangku': updateLED(3, msg); addToHistory(3, "LED", msg == "1" ? "ON" : "OFF"); break;
+            // Rute data berdasarkan topik alat mana yang mengirim
+            if (topic === 'husnayan/rt1/data') {
+                updateDisplay('temp1', data.temperature, true);
+                updateDisplay('gas1', data.gas, false);
+                updateLED(1, data.led);
+                if(data.temperature !== lastData.rt1.t) { addToHistory(1, "Suhu", data.temperature + "°C"); lastData.rt1.t = data.temperature; }
+                if(data.gas !== lastData.rt1.g) { addToHistory(1, "Gas", data.gas); lastData.rt1.g = data.gas; }
+                if(data.led !== lastData.rt1.l) { addToHistory(1, "LED", data.led); lastData.rt1.l = data.led; }
+            } 
+            else if (topic === 'husnayan/rt2/data') {
+                updateDisplay('temp2', data.temperature, true);
+                updateDisplay('gas2', data.gas, false);
+                updateLED(2, data.led);
+                if(data.temperature !== lastData.rt2.t) { addToHistory(2, "Suhu", data.temperature + "°C"); lastData.rt2.t = data.temperature; }
+                if(data.gas !== lastData.rt2.g) { addToHistory(2, "Gas", data.gas); lastData.rt2.g = data.gas; }
+                if(data.led !== lastData.rt2.l) { addToHistory(2, "LED", data.led); lastData.rt2.l = data.led; }
+            }
+
+            updateChartsData();
+        } catch (e) {
+            console.error("Format payload tidak valid (Bukan JSON):", e);
         }
-        updateChartsData();
     });
 }
 
@@ -107,7 +121,7 @@ function initCharts() {
             { label: 'RT 2', data: gasData.rt2, borderColor: '#1abc9c', tension: 0.3, fill: false },
             { label: 'RT 3', data: gasData.rt3, borderColor: '#34495e', tension: 0.3, fill: false }
         ]},
-        options: opt('Level Deteksi Gas')
+        options: opt('Level Deteksi Gas (%)')
     });
 }
 
@@ -118,13 +132,24 @@ function updateChartsData() {
         tempData.rt1.shift(); tempData.rt2.shift(); tempData.rt3.shift();
         gasData.rt1.shift(); gasData.rt2.shift(); gasData.rt3.shift();
     }
-    timeLabels.push(now);
+    
+    // Pastikan label waktu tidak duplikat jika 2 perangkat ngirim di detik yang sama
+    if (timeLabels[timeLabels.length - 1] !== now) {
+        timeLabels.push(now);
+    } else {
+        // Timpa data chart terakhir (pop lalu push yang baru diparsing DOM)
+        tempData.rt1.pop(); tempData.rt2.pop(); tempData.rt3.pop();
+        gasData.rt1.pop(); gasData.rt2.pop(); gasData.rt3.pop();
+    }
+    
     tempData.rt1.push(parseFloat(document.getElementById('temp1').innerText) || 0);
     tempData.rt2.push(parseFloat(document.getElementById('temp2').innerText) || 0);
     tempData.rt3.push(parseFloat(document.getElementById('temp3').innerText) || 0);
-    gasData.rt1.push(parseInt(document.getElementById('gas1').innerText) || 0);
-    gasData.rt2.push(parseInt(document.getElementById('gas2').innerText) || 0);
-    gasData.rt3.push(parseInt(document.getElementById('gas3').innerText) || 0);
+    
+    gasData.rt1.push(parseFloat(document.getElementById('gas1').innerText) || 0);
+    gasData.rt2.push(parseFloat(document.getElementById('gas2').innerText) || 0);
+    gasData.rt3.push(parseFloat(document.getElementById('gas3').innerText) || 0);
+    
     tempChart.update('none');
     gasChart.update('none');
 }
