@@ -1,7 +1,7 @@
 const mqttConfig = {
     broker: 'wss://broker.emqx.io:8084/mqtt',
     // Subscribe ke masing-masing topik RT
-    topics: ['husnayan/rt1/data', 'husnayan/rt2/data'] 
+    topics: ['husnayan/rt1/data', 'husnayan/rt2/data', 'husnayan/rt2/data'] 
 };
 
 let historyData = [];
